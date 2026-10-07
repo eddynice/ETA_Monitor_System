@@ -11,33 +11,95 @@ const motiveAPI = axios.create({
 function formatDispatch(item) {
     const dispatch = item.dispatch;
 
-    const trip = dispatch?.dispatch_trips?.[0]?.dispatch_trip;
+    const trip =
+        dispatch?.dispatch_trips?.[0]?.dispatch_trip;
+
+    const stops =
+        dispatch?.dispatch_stops
+            ?.map(item => item.dispatch_stop)
+            .filter(Boolean) || [];
+
+   const pickupStops =
+    stops.filter(
+        stop =>
+            String(stop.type).toLowerCase() ===
+            "pickup"
+    );
+
+const deliveryStops =
+    stops.filter(
+        stop =>
+            String(stop.type).toLowerCase() ===
+            "delivery"
+    );
+
+    const pickup =
+        pickupStops[pickupStops.length - 1] || null;
+
+    const delivery =
+        deliveryStops[deliveryStops.length - 1] || null;
 
     return {
         dispatchId: dispatch?.id || null,
         status: dispatch?.status || null,
-        
-        deliveryLocationId:
-        dispatch?.consignee_dispatch_location_id || null,
 
+        vehicleId: trip?.vehicle_id || null,
+        tripStatus: trip?.status || null,
+
+        pickupNumber:
+            dispatch?.pickup_number ||
+            pickup?.comments ||
+            null,
+
+        loadedMiles:
+            dispatch?.loaded_miles ||
+            trip?.loaded_miles ||
+            null,
 
         pickup: {
-            earlyDate: dispatch?.pickup_early_date || null,
-            lateDate: dispatch?.pickup_late_date || null
+            locationId:
+                pickup?.dispatch_location_id ||
+                null,
+
+            earlyDate:
+                pickup?.early_date ||
+                null,
+
+            lateDate:
+                pickup?.late_date ||
+                null,
+
+            status:
+                pickup?.status ||
+                null
         },
 
         delivery: {
-            earlyDate: dispatch?.delivery_early_date || null,
-            lateDate: dispatch?.delivery_late_date || null
+            locationId:
+                delivery?.dispatch_location_id ||
+                null,
+
+            earlyDate:
+                delivery?.early_date ||
+                null,
+
+            lateDate:
+                delivery?.late_date ||
+                null,
+
+            status:
+                delivery?.status ||
+                null
         },
 
-        vehicleId: trip?.vehicle_id || null,
-
-        tripStatus: trip?.status || null,
-
-        pickupNumber: dispatch?.pickup_number || null,
-
-        loadedMiles: dispatch?.loaded_miles || null
+        stops: stops.map(stop => ({
+            id: stop.id,
+            locationId: stop.dispatch_location_id,
+            type: stop.type,
+            earlyDate: stop.early_date,
+            lateDate: stop.late_date,
+            status: stop.status
+        }))
     };
 }
 
@@ -183,7 +245,12 @@ async function getDispatches() {
 
             const dispatches =
                 response.data.dispatches || [];
-
+                if (pageNo === 1 && dispatches.length > 0) {
+    // console.log(
+    //     "RAW ACTIVE DISPATCH:",
+    //     JSON.stringify(dispatches[0], null, 2)
+    // );
+}
             allDispatches =
                 allDispatches.concat(dispatches);
 
@@ -200,6 +267,33 @@ async function getDispatches() {
 
         const formattedDispatches =
             allDispatches.map(formatDispatch);
+
+            const now = new Date();
+
+const currentDispatches =
+    formattedDispatches.filter(dispatch => {
+
+        const deliveryDate =
+            dispatch.delivery.lateDate ||
+            dispatch.delivery.earlyDate;
+
+        if (!deliveryDate) {
+            return false;
+        }
+
+        const deliveryTime =
+            new Date(deliveryDate);
+
+        // Ignore dispatches whose delivery date
+        // is more than 24 hours in the past.
+        const oneDayAgo =
+            new Date(
+                now.getTime() -
+                24 * 60 * 60 * 1000
+            );
+
+        return deliveryTime >= oneDayAgo;
+    });
             console.log(
     "Active dispatch vehicle IDs:",
     formattedDispatches.map(dispatch => ({
@@ -211,11 +305,13 @@ async function getDispatches() {
 );
 
         return {
-            dispatches: formattedDispatches,
+            dispatches: currentDispatches,
+            //dispatches: formattedDispatches,
             rawDispatches: allDispatches,
             pagination: {
                 total_retrieved: allDispatches.length,
-                filtered_count: formattedDispatches.length
+                filtered_count: currentDispatches.length
+               // filtered_count: formattedDispatches.length
             }
         };
 

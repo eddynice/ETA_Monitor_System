@@ -105,21 +105,26 @@ async function monitorDispatch(
     }
 
     // Get delivery location
-    if (!dispatch.deliveryLocationId) {
-        console.log(
-            `No delivery location for dispatch ${dispatch.dispatchId}`
-        );
+  const deliveryLocationId =
+    dispatch.delivery?.locationId;
 
-        return;
-    }
-
-    const locationData =
-        await getDispatchLocation(
-            dispatch.deliveryLocationId
-        );
+if (!deliveryLocationId) {
+    console.log(
+        `No delivery location for dispatch ${dispatch.dispatchId}`
+    );
+    return;
+}
+  const locationData =
+    await getDispatchLocation(
+        deliveryLocationId
+    );
+    console.log(
+    "LOCATION DATA:",
+    JSON.stringify(locationData, null, 2)
+);
 
     const destination =
-        locationData.dispatch_locations?.[0]?.dispatch_location;
+    locationData.data?.dispatch_locations?.[0]?.dispatch_location;
 
     if (!destination) {
         console.log(
