@@ -1,7 +1,6 @@
-const axios = require("axios");
 const nodemailer = require("nodemailer");
 
-const activeAlerts = new Map();
+const { pool } = require("../config/database");
 
 const emailTransporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -13,6 +12,7 @@ const emailTransporter = nodemailer.createTransport({
         pass: process.env.SMTP_PASSWORD
     }
 });
+
 
 function createAlert({
     dispatchId,
@@ -35,35 +35,214 @@ function createAlert({
     };
 }
 
-function shouldSendLateAlert(dispatchId) {
-    return !activeAlerts.has(String(dispatchId));
+
+/*
+ * Check MySQL to determine whether this dispatch
+ * already has an active alert.
+ */
+async function shouldSendLateAlert(dispatchId) {
+    try {
+        const [rows] = await pool.execute(
+            `
+            SELECT id
+            FROM alerts
+            WHERE dispatch_id = ?
+              AND status = 'active'
+            LIMIT 1
+            `,
+            [dispatchId]
+        );
+
+        return rows.length === 0;
+
+    } catch (error) {
+
+        console.error(
+            "Failed to check existing alert:",
+            error.message
+        );
+
+        throw error;
+    }
 }
 
-function saveAlert(alert) {
-    activeAlerts.set(
-        String(alert.dispatchId),
-        alert
-    );
+
+/*
+ * Save a new alert to MySQL.
+ */
+async function  saveAlert(alert) {
+    try {
+
+        const [result] = await pool.execute(
+            `
+            INSERT INTO alerts (
+                dispatch_id,
+                vehicle_id,
+                truck_number,
+                destination,
+                eta,
+                scheduled_delivery,
+                delay_minutes,
+                status,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NOW())
+            `,
+            [
+                alert.dispatchId,
+                alert.vehicleId,
+                alert.truckNumber,
+                alert.destination,
+                alert.eta,
+                alert.scheduledDelivery,
+                alert.delayMinutes
+            ]
+        );
+
+        console.log(
+            `Alert saved to database. Alert ID: ${result.insertId}`
+        );
+
+        return {
+            success: true,
+            id: result.insertId
+        };
+
+    } catch (error) {
+
+        /*
+         * Duplicate active alert protection.
+         */
+        if (error.code === "ER_DUP_ENTRY") {
+
+            console.log(
+                `Active alert already exists for dispatch ${alert.dispatchId}`
+            );
+
+            return {
+                success: false,
+                duplicate: true
+            };
+        }
+
+        console.error(
+            "Failed to save alert:",
+            error.message
+        );
+
+        throw error;
+    }
 }
 
-function getAlert(dispatchId) {
-    return activeAlerts.get(
-        String(dispatchId)
-    );
+
+/*
+ * Get the currently active alert
+ * for a dispatch.
+ */
+async function getAlert(dispatchId) {
+    try {
+
+        const [rows] = await pool.execute(
+            `
+            SELECT *
+            FROM alerts
+            WHERE dispatch_id = ?
+              AND status = 'active'
+            ORDER BY created_at DESC
+            LIMIT 1
+            `,
+            [dispatchId]
+        );
+
+        return rows[0] || null;
+
+    } catch (error) {
+
+        console.error(
+            "Failed to retrieve alert:",
+            error.message
+        );
+
+        throw error;
+    }
 }
 
-function clearAlert(dispatchId) {
-    activeAlerts.delete(
-        String(dispatchId)
-    );
+
+/*
+ * Resolve an active alert when the truck
+ * is no longer projected to be 30+ minutes late.
+ */
+async function clearAlert(dispatchId) {
+    try {
+
+        const [result] = await pool.execute(
+            `
+            UPDATE alerts
+            SET
+                status = 'resolved',
+                resolved_at = NOW()
+            WHERE dispatch_id = ?
+              AND status = 'active'
+            `,
+            [dispatchId]
+        );
+
+        if (result.affectedRows > 0) {
+
+            console.log(
+                `Alert resolved for dispatch ${dispatchId}`
+            );
+        }
+
+        return {
+            success: true,
+            resolved: result.affectedRows > 0
+        };
+
+    } catch (error) {
+
+        console.error(
+            "Failed to resolve alert:",
+            error.message
+        );
+
+        throw error;
+    }
 }
 
-function getActiveAlerts() {
-    return Array.from(
-        activeAlerts.values()
-    );
+
+/*
+ * Get all currently active alerts.
+ */
+async function getActiveAlerts() {
+    try {
+
+        const [rows] = await pool.execute(
+            `
+            SELECT *
+            FROM alerts
+            WHERE status = 'active'
+            ORDER BY created_at DESC
+            `
+        );
+
+        return rows;
+
+    } catch (error) {
+
+        console.error(
+            "Failed to retrieve active alerts:",
+            error.message
+        );
+
+        throw error;
+    }
 }
 
+
+/*
+ * Send email notification.
+ */
 async function sendEmailAlert(alert) {
 
     if (
@@ -212,6 +391,8 @@ async function sendEmailAlert(alert) {
         };
     }
 }
+
+
 async function testEmailConnection() {
     try {
 
@@ -234,6 +415,7 @@ async function testEmailConnection() {
     }
 }
 
+
 async function sendTestEmail() {
 
     const testAlert = {
@@ -252,6 +434,7 @@ async function sendTestEmail() {
 
     return await sendEmailAlert(testAlert);
 }
+
 
 module.exports = {
     createAlert,

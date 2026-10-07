@@ -17,7 +17,7 @@ const {
 const {
     createAlert,
     shouldSendLateAlert,
-    saveAlert,
+    locationData,
     clearAlert,
     //sendTeamsAlert
     sendEmailAlert
@@ -59,6 +59,33 @@ async function checkDispatches() {
         console.log(
             `Vehicles received from Motive: ${vehicles.length}`
         );
+        const monitoredVehicleIds = [
+    ...new Set(
+        activeDispatches.map(
+            dispatch => Number(dispatch.vehicleId)
+        )
+    )
+];
+
+console.log("MONITORED VEHICLE STATUS:");
+
+for (const vehicle of vehicles) {
+    if (
+        monitoredVehicleIds.includes(
+            Number(vehicle.vehicleId)
+        )
+    ) {
+        console.log({
+            vehicleId: vehicle.vehicleId,
+            truckNumber: vehicle.truckNumber,
+            vehicleState: vehicle.vehicleState,
+            speedKph: vehicle.speedKph,
+            latitude: vehicle.latitude,
+            longitude: vehicle.longitude,
+            locatedAt: vehicle.locatedAt
+        });
+    }
+}
 
         // 4. Check every dispatch
         for (const dispatch of activeDispatches) {
@@ -97,12 +124,30 @@ async function monitorDispatch(
     );
 
     if (!vehicle) {
-        console.log(
-            `Vehicle ${dispatch.vehicleId} not found for dispatch ${dispatch.dispatchId}`
-        );
+    console.log(
+        `Vehicle ${dispatch.vehicleId} not found for dispatch ${dispatch.dispatchId}`
+    );
+    return;
+}
 
-        return;
-    }
+const locationAgeMinutes =
+    (
+        Date.now() -
+        new Date(vehicle.locatedAt).getTime()
+    ) / (1000 * 60);
+if (
+    !vehicle.locatedAt ||
+    locationAgeMinutes > 15
+) {
+    console.log(`Truck: ${vehicle.truckNumber}`);
+    console.log(
+        `GPS location is stale for truck ${vehicle.truckNumber}. ` +
+        `Last update: ${vehicle.locatedAt || "unknown"} ` +
+        `(${vehicle.locatedAt ? locationAgeMinutes.toFixed(1) : "unknown"} minutes ago)`
+    );
+
+    return;
+}
 
     // Get delivery location
   const deliveryLocationId =
@@ -118,13 +163,14 @@ if (!deliveryLocationId) {
     await getDispatchLocation(
         deliveryLocationId
     );
-    console.log(
-    "LOCATION DATA:",
-    JSON.stringify(locationData, null, 2)
-);
+//     console.log(
+//     "LOCATION DATA:",
+//     JSON.stringify(locationData, null, 2)
+// );
 
     const destination =
-    locationData.data?.dispatch_locations?.[0]?.dispatch_location;
+    //locationData.data?.dispatch_locations?.[0]?.dispatch_location;
+     locationData.dispatch_locations?.[0]?.dispatch_location;
 
     if (!destination) {
         console.log(
@@ -190,11 +236,7 @@ if (!deliveryLocationId) {
 
   if (delay.isLate) {
 
-    if (
-        shouldSendLateAlert(
-            dispatch.dispatchId
-        )
-    ) {
+   if (await shouldSendLateAlert(dispatch.dispatchId)) {
 
         const alert = createAlert({
             dispatchId: dispatch.dispatchId,
@@ -206,7 +248,7 @@ if (!deliveryLocationId) {
             delayMinutes: delay.delayMinutes
         });
 
-        saveAlert(alert);
+        await locationData(alert);
 
         console.log(
             "🚨 NEW LATE ALERT"
@@ -238,7 +280,7 @@ if (!deliveryLocationId) {
 
 } else {
 
-    clearAlert(
+   await clearAlert(
         dispatch.dispatchId
     );
 

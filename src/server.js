@@ -5,6 +5,9 @@ const cors = require("cors");
 const motiveRoutes = require("./routes/motiveRoutes");
 const {startEtaMonitor} = require("./workers/etaMonitor");
 const {testEmailConnection} = require("./services/alertService");
+const {
+    testDatabaseConnection
+} = require("./config/database");
 
 const app = express();
     
@@ -23,7 +26,9 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-      testEmailConnection();
-      startEtaMonitor();
+     // testEmailConnection();
+      testDatabaseConnection();
+       startEtaMonitor();
 });
+
 
